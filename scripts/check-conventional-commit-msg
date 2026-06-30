@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+set -eu
+
+commit_msg_file="${1:-}"
+
+if [ -z "$commit_msg_file" ] || [ ! -f "$commit_msg_file" ]; then
+  echo "usage: $0 <commit-message-file>" >&2
+  exit 2
+fi
+
+subject=$(grep -v '^[[:space:]]*#' "$commit_msg_file" | sed '/^[[:space:]]*$/d' | head -n 1)
+
+# Allow Git-generated messages that are usually not hand-authored.
+case "$subject" in
+  "Merge "*|"Revert \""*|"fixup! "*|"squash! "*)
+    exit 0
+    ;;
+esac
+
+# Conventional Commit format:
+#   <type>[optional scope][optional !]: <description>
+# Examples:
+#   feat: add mmd file validation
+#   fix(parser): support tilde fences
+#   chore!: drop old runtime
+if printf '%s\n' "$subject" | grep -Eq '^[a-z]+(\([A-Za-z0-9._/-]+\))?!?: .+$'; then
+  exit 0
+fi
+
+cat >&2 <<EOF
+Invalid commit message subject:
+  $subject
+
+Use Conventional Commits:
+  <type>[optional scope][optional !]: <description>
+
+Examples:
+  feat: add mmd file validation
+  fix(parser): support tilde fences
+  chore!: drop old runtime
+EOF
+
+exit 1

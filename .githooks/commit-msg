@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+
+exec "$(git rev-parse --show-toplevel)/scripts/check-conventional-commit-msg" "$1"
