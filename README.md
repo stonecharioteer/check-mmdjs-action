@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: stonecharioteer/check-mmdjs-action@v1
+      - uses: stonecharioteer/check-mmdjs-action@v2
 ```
 
 ## Inputs
@@ -44,7 +44,7 @@ jobs:
 Example with options:
 
 ```yaml
-- uses: stonecharioteer/check-mmdjs-action@v1
+- uses: stonecharioteer/check-mmdjs-action@v2
   with:
     files: |
       docs/**/*.md
@@ -56,9 +56,25 @@ Example with options:
     fail-fast: true
 ```
 
+## Development
+
+Commit messages are checked against the Conventional Commits format.
+
+Using [`pre-commit`](https://pre-commit.com/):
+
+```sh
+pre-commit install --hook-type commit-msg
+```
+
+Or with Git's native hooks path:
+
+```sh
+git config core.hooksPath .githooks
+```
+
 ## Notes
 
-- The action runs on Node 20 and invokes Mermaid CLI through `npx`, so no package installation is required in the consuming repository.
+- The action runs on Node 24 and invokes Mermaid CLI through `npx`, so no package installation is required in the consuming repository.
 - Workflow annotations point to the Markdown file and line where the failing Mermaid fence starts.
 - Fences labelled `mermaid`, `mmd`, or `mermaidjs` are checked.
 - Standalone `.mmd` and `.mermaid` files are treated as one diagram each.
