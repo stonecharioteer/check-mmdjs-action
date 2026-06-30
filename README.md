@@ -2,7 +2,7 @@
 
 GitHub Action that scans Markdown files for fenced Mermaid blocks, plus standalone `.mmd`/`.mermaid` files, and fails the workflow when any diagram has invalid Mermaid syntax.
 
-The action uses Mermaid's parser API for syntax-only validation. It does **not** render diagrams and does not launch Puppeteer or Chrome, so runner Chrome dependency failures are not reported as invalid diagrams.
+The action uses Mermaid's parser API with JSDOM for syntax-only validation. It does **not** render diagrams and does not launch Puppeteer or Chrome, so runner Chrome dependency failures are not reported as invalid diagrams. Parser runtime/setup failures, such as DOMPurify/JSDOM integration errors, are reported as environment errors instead of invalid diagrams.
 
 It detects code fences such as:
 
@@ -78,7 +78,7 @@ git config core.hooksPath .githooks
 
 ## Notes
 
-- The action runs on Node 24 and installs the `mermaid` npm package in a temporary directory for parser API validation.
+- The action runs on Node 24 and installs the `mermaid` and `jsdom` npm packages in a temporary directory for parser API validation.
 - Workflow annotations point to the Markdown file and line where the failing Mermaid fence starts, or line 1 for standalone `.mmd`/`.mermaid` files.
 - Fences labelled `mermaid`, `mmd`, or `mermaidjs` are checked.
 - Standalone `.mmd` and `.mermaid` files are treated as one diagram each.

@@ -178,15 +178,16 @@ function readJsonFile(file) {
   }
 }
 
-function installMermaid(version, installRoot) {
+function installParserDependencies(version, installRoot) {
   ensureDir(installRoot);
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const packageSpec = `mermaid@${version}`;
+  const mermaidPackageSpec = `mermaid@${version}`;
+  const jsdomPackageSpec = 'jsdom@latest';
 
-  group(`Installing ${packageSpec}`);
+  group(`Installing ${mermaidPackageSpec} and ${jsdomPackageSpec}`);
   const result = spawnSync(
     npm,
-    ['install', '--no-audit', '--no-fund', '--omit=dev', '--prefix', installRoot, packageSpec],
+    ['install', '--no-audit', '--no-fund', '--omit=dev', '--prefix', installRoot, mermaidPackageSpec, jsdomPackageSpec],
     { cwd: workspace, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
   );
   const installOutput = [result.stdout, result.stderr].filter(Boolean).join('\n');
@@ -195,30 +196,64 @@ function installMermaid(version, installRoot) {
 
   if (result.status !== 0) {
     workflowError(
-      'Mermaid dependency installation failed',
-      `Unable to install ${packageSpec}. This is a runner/dependency environment error, not an invalid diagram. npm exited with status ${result.status}.`
+      'Mermaid parser dependency installation failed',
+      `Unable to install ${mermaidPackageSpec} and ${jsdomPackageSpec}. This is a runner/dependency environment error, not an invalid diagram. npm exited with status ${result.status}.`
     );
     process.exit(2);
   }
 
   const mermaidModule = path.join(installRoot, 'node_modules', 'mermaid', 'dist', 'mermaid.esm.mjs');
-  if (!fs.existsSync(mermaidModule)) {
+  const jsdomModule = path.join(installRoot, 'node_modules', 'jsdom', 'lib', 'api.js');
+  const missingModules = [mermaidModule, jsdomModule].filter((modulePath) => !fs.existsSync(modulePath));
+  if (missingModules.length > 0) {
     workflowError(
-      'Mermaid parser API unavailable',
-      `Installed ${packageSpec}, but ${path.relative(workspace, mermaidModule)} was not found. This is a runner/dependency environment error, not an invalid diagram.`
+      'Mermaid parser environment unavailable',
+      `Installed parser dependencies, but these module files were not found: ${missingModules.map((modulePath) => path.relative(workspace, modulePath)).join(', ')}. This is a runner/dependency environment error, not an invalid diagram.`
     );
     process.exit(2);
   }
-  return mermaidModule;
+  return { mermaidModule, jsdomModule };
+}
+
+function defineGlobal(name, value) {
+  if (value !== undefined) {
+    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  }
+}
+
+async function setupParserDom(jsdomModule) {
+  const imported = await import(pathToFileURL(jsdomModule).href);
+  const { JSDOM } = imported;
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    pretendToBeVisual: true,
+    url: 'https://localhost/',
+  });
+
+  defineGlobal('window', dom.window);
+  defineGlobal('document', dom.window.document);
+  defineGlobal('navigator', dom.window.navigator);
+  for (const name of ['Element', 'HTMLElement', 'SVGElement', 'Node', 'DOMParser', 'XMLSerializer']) {
+    defineGlobal(name, dom.window[name]);
+  }
 }
 
 async function loadMermaid(version, tempRoot, configFile) {
-  const modulePath = installMermaid(version, path.join(tempRoot, 'mermaid-package'));
-  const imported = await import(pathToFileURL(modulePath).href);
+  const { mermaidModule, jsdomModule } = installParserDependencies(version, path.join(tempRoot, 'parser-dependencies'));
+  await setupParserDom(jsdomModule);
+  const imported = await import(pathToFileURL(mermaidModule).href);
   const mermaid = imported.default || imported;
   const config = configFile ? readJsonFile(configFile) : {};
   mermaid.initialize({ startOnLoad: false, ...config });
   return mermaid;
+}
+
+function isMermaidSyntaxError(error) {
+  if (!error) return false;
+  if (error.hash) return true;
+  if (error.name === 'UnknownDiagramError') return true;
+
+  const message = String(error.message || error);
+  return /^(Parse error|Lexical error|No diagram type detected|Diagram error)/i.test(message);
 }
 
 function formatParseError(error) {
@@ -264,7 +299,7 @@ async function main() {
   console.log(`Include patterns: ${includePatterns.join(', ')}`);
   console.log(`Ignore patterns: ${ignorePatterns.join(', ')}`);
   console.log(`Files matched: ${files.length}`);
-  console.log(`Validation mode: Mermaid parser API syntax check (no rendering, Puppeteer, or Chrome)`);
+  console.log(`Validation mode: Mermaid parser API syntax check with JSDOM (no rendering, Puppeteer, or Chrome)`);
   endgroup();
 
   const checks = [];
@@ -302,6 +337,14 @@ async function main() {
     try {
       await Promise.resolve(mermaid.parse(block.content, { suppressErrors: false }));
     } catch (error) {
+      if (!isMermaidSyntaxError(error)) {
+        workflowError(
+          'Mermaid parser environment error',
+          `${label}: ${error && error.stack ? error.stack : error}\nThis came from Mermaid's parser runtime (for example DOMPurify/JSDOM integration), not from diagram syntax. The diagram was not classified as invalid.`
+        );
+        process.exit(2);
+      }
+
       failures += 1;
       errorAnnotation(file, block.startLine, 'Invalid Mermaid syntax', formatParseError(error));
       if (failFast) break;
