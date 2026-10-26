@@ -126,6 +126,10 @@ function extractMermaidBlocks(markdown) {
     if (fence.isMermaid) fence.content.push(line);
   }
 
+  if (fence && fence.isMermaid) {
+    blocks.push({ startLine: fence.startLine, endLine: lines.length, content: fence.content.join('\n') });
+  }
+
   return blocks;
 }
 
@@ -291,6 +295,14 @@ async function main() {
   const files = walkFiles(workspace, isIgnored).filter((file) => isIncluded(file)).sort();
 
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'check-mmdjs-action-'));
+  // Exit handlers also run for syntax/setup failures that call process.exit.
+  process.once('exit', () => {
+    try {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    } catch (error) {
+      console.warn(`Unable to remove temporary parser files: ${error.message}`);
+    }
+  });
   const outputRoot = outputDirInput ? path.resolve(workspace, outputDirInput) : tempRoot;
   ensureDir(outputRoot);
 
@@ -303,7 +315,6 @@ async function main() {
   endgroup();
 
   const checks = [];
-  let checkedFiles = 0;
   for (const file of files) {
     const content = fs.readFileSync(path.join(workspace, file), 'utf8');
     const extension = path.extname(file).toLowerCase();
@@ -311,7 +322,6 @@ async function main() {
       ? [{ startLine: 1, endLine: content.split(/\r?\n/).length, content }]
       : extractMermaidBlocks(content);
     if (blocks.length === 0) continue;
-    checkedFiles += 1;
 
     for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
       checks.push({ file, blockIndex, block: blocks[blockIndex] });
@@ -326,8 +336,12 @@ async function main() {
   const mermaid = await loadMermaid(mermaidVersion, tempRoot, configFile);
 
   let failures = 0;
+  let checkedDiagrams = 0;
+  const checkedFiles = new Set();
   for (const check of checks) {
     const { file, blockIndex, block } = check;
+    checkedDiagrams += 1;
+    checkedFiles.add(file);
     const base = `${sanitizeFileName(file)}_L${block.startLine}_${blockIndex + 1}`;
     const inputFile = path.join(outputRoot, `${base}.mmd`);
     fs.writeFileSync(inputFile, block.content.endsWith('\n') ? block.content : `${block.content}\n`);
@@ -356,11 +370,11 @@ async function main() {
   }
 
   if (failures > 0) {
-    console.error(`Found ${failures} invalid Mermaid diagram(s) out of ${checks.length} checked in ${checkedFiles} file(s).`);
+    console.error(`Found ${failures} invalid Mermaid diagram(s) out of ${checkedDiagrams} checked in ${checkedFiles.size} file(s).`);
     process.exit(1);
   }
 
-  console.log(`All ${checks.length} Mermaid diagram(s) passed syntax validation from ${checkedFiles} file(s).`);
+  console.log(`All ${checkedDiagrams} Mermaid diagram(s) passed syntax validation from ${checkedFiles.size} file(s).`);
 }
 
 main().catch((error) => {
