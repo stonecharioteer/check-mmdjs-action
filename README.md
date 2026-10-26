@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: stonecharioteer/check-mmdjs-action@v3
+      - uses: stonecharioteer/check-mmdjs-action@v3.1
 ```
 
 ## Inputs
@@ -47,7 +47,7 @@ jobs:
 Example with options:
 
 ```yaml
-- uses: stonecharioteer/check-mmdjs-action@v3
+- uses: stonecharioteer/check-mmdjs-action@v3.1
   with:
     files: |
       docs/**/*.md
@@ -60,7 +60,20 @@ Example with options:
     fail-fast: true
 ```
 
+## Troubleshooting
+
+If `@v3` reports `purify.sanitize is not a function` or `purify.addHook is not a function`, change the action reference to `@v3.1`. The `v3` tag points to the parser implementation without JSDOM. The fix is in `v3.1`; rerunning a workflow that still uses `v3` does not apply it.
+
 ## Development
+
+Run the integration tests with Node 24. The tests install Mermaid and JSDOM from npm and need network access.
+
+```sh
+node --test test/action.test.js
+TEST_MERMAID_VERSION=11.4.1 node --test test/action.test.js
+```
+
+CI tests the documented Mermaid version and `latest`. The tests cover inline theme directives, HTML labels, syntax errors, unclosed fences, fail-fast counts, dependency failures, temporary file cleanup, retained output files, and files without diagrams.
 
 Commit messages are checked against the Conventional Commits format.
 
@@ -78,7 +91,7 @@ git config core.hooksPath .githooks
 
 ## Notes
 
-- The action runs on Node 24 and installs the `mermaid` and `jsdom` npm packages in a temporary directory for parser API validation.
+- The action runs on Node 24 and installs the `mermaid` and `jsdom` npm packages in a temporary directory for parser API validation. It removes this directory on success or failure. Files saved with `output-dir` remain available.
 - Workflow annotations point to the Markdown file and line where the failing Mermaid fence starts, or line 1 for standalone `.mmd`/`.mermaid` files.
-- Fences labelled `mermaid`, `mmd`, or `mermaidjs` are checked.
+- Fences labelled `mermaid`, `mmd`, or `mermaidjs` are checked. An unclosed fence continues to the end of the file, as specified by Markdown.
 - Standalone `.mmd` and `.mermaid` files are treated as one diagram each.
